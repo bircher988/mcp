@@ -1,0 +1,35 @@
+Les questions qui peuvent intéresser, du consultant au développeur (à compléter) :
+Quelle différence entre des API et MCP ?
+Si j'ai déjà des API? je dois tout jeter et refaire ou je peux réutiliser ?
+Quel et le bon scope / granularité pour un serveur MCP, quels critères choisir pour faire une architecture évolutive (j'ai un draft issus des discussions Edenred, mais à reprendre par FRONTON, Matthieu) ?
+Quelle différence entre des Data Products et des serveurs MCP ?
+Quelles sont les primitives d'accès MCP ?
+Quels sont les différents moyens d'accéder à du contenu derrière le protocole MCP ? Synchrone / Asynchrone ? REST / GraphQL / LLM / RAG / GraphRAG ?
+MCP c'est juste pour récupérer des contextes ou bien également pour écrire des données, voire déclencher des actions ?
+Si j'ai déjà un micro-services transactionnel qui marche bien, comment puis-je le mettre à disposition des agents en MCP ?
+Est-ce que c'est facile de démarrer rapidement avec serveur MCP qui utilise des services déjà en place et de le faire évoluer de manière incrémentale ?
+Si on fait évoluer un serveurs MCP (iso-primitives ou en ajoutant) comment peut-on gérer efficacement les tests de non-régression, au niveau du serveur et/ou au niveau des agents qui l'utilisent ?
+bootstrap MCP for existing services
+
+
+Ton scénario illustre parfaitement l'escalade progressive des 5 niveaux de permission de Godin :
+- Situational d'abord, une interaction transactionnelle simple ("Show me coffee") sans aucune donnée collectée.
+- Personal ensuite, une micro-permission contextuelle ("Want me to remember your favorites?") où l'agent demande avant de stocker quoi que ce soit
+- Intravenous enfin quand deux semaines plus tardi il escalade vers la délégation contrainte ("Want me to handle it automatically?")
+ 
+C'est la meilleure démo conversationnelle possible.
+Tu montres que la permission n'est pas une checkbox statique mais un actif vivant qui se construit dans la conversation.
+ 
+Si ton auditoire est technique tu pourras peut-être l'enrichir cet excellent scénario (frontend) avec les actions et tools calls (backend)
+Par exemple : 
+- Pour répondre "Here you go" il a fait un appel à Shopify Storefront MCP 
+- Quand il sauvegarde les préférences, c'est un appel à HubSpot MCP
+- Quand il passe en mode automatique, c'est le Stripe MCP
+
+
+Un très gros papier de Google sur le sujet de la délégation.
+Le concept de permission marketing c'est un peu un cas particulier de tout ce qu'ils formalisent
+ 
+Ici permission handling avec privilege attenuation et trust calibration 
+
+https://capgemini-my.sharepoint.com/:b:/p/matthieu_fronton/IQDGPHt5UUWPS48YVwz9M2nNAUEZ9zmkNeNsRA6esx46ygo?e=EN6bBB
