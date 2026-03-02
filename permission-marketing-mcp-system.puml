@@ -1,0 +1,471 @@
+@startuml Permission Marketing MCP System
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontSize 11
+skinparam componentStyle rectangle
+
+title Permission Marketing MCP: From Interruption to Delegation\n(Based on Seth Godin's Permission Marketing Framework)
+
+' ============================================================================
+' LEGEND & COLOR SCHEME
+' ============================================================================
+legend top
+|= Level |= Permission Type |= Color |= Auto-Grant |= Trust Required |
+| **1** | Situational | <#90EE90> | YES | None |
+| **2** | Brand Trust | <#FFFFE0> | NO | Explicit Opt-in |
+| **3** | Personal Relationship | <#FFD700> | NO | Authentication |
+| **4** | Points Permission | <#FFA500> | NO | Loyalty Program |
+| **5** | Agentic/Intravenous | <#FF6B6B> | NO | Delegation + Constraints |
+
+**Key Concept:** Each level represents earned permission, not assumed rights.
+The agent climbs the ladder by delivering value and earning trust.
+endlegend
+
+' ============================================================================
+' PART 1: ARCHITECTURE OVERVIEW
+' ============================================================================
+package "Permission Marketing MCP Server" as MCPServer {
+    
+    frame "MCP Tools" as Tools {
+        component "request_permission()" as ReqPerm <<tool>> #LightBlue
+        note right of ReqPerm
+          scope: str
+          reason: str
+          duration: str
+          constraints: dict
+          Returns: PermissionGrant
+        end note
+        
+        component "check_permission()" as CheckPerm <<tool>> #LightBlue
+        component "revoke_permission()" as RevokePerm <<tool>> #LightBlue
+        component "list_permissions()" as ListPerm <<tool>> #LightBlue
+        component "escalate_permission()" as EscalatePerm <<tool>> #LightBlue
+        component "explain_permission()" as ExplainPerm <<tool>> #LightBlue
+    }
+    
+    frame "MCP Resources" as Resources {
+        component "resource://permissions/\n{user_id}/current" as CurrentRes <<resource>> #LightGreen
+        component "resource://permissions/\n{user_id}/ladder" as LadderRes <<resource>> #LightGreen
+        component "resource://permissions/\n{user_id}/audit" as AuditRes <<resource>> #LightGreen
+    }
+    
+    frame "MCP Prompts" as Prompts {
+        component "permission_request_template" as ReqPrompt <<prompt>> #LightYellow
+        component "value_exchange_template" as ValuePrompt <<prompt>> #LightYellow
+        component "denial_handler_template" as DenialPrompt <<prompt>> #LightYellow
+    }
+    
+    database "Permission Database" as PermDB {
+        frame "Tables" {
+            [permissions]
+            [permission_grants]
+            [permission_audit_log]
+            [permission_ladder_config]
+        }
+    }
+}
+
+actor "User" as User
+component "AI Agent\n(Shopping Assistant)" as Agent
+cloud "User Interface\n(Chat/Voice)" as UI
+
+User -down-> UI : converses
+UI -down-> Agent : intents & responses
+Agent -down-> MCPServer : MCP JSON-RPC
+MCPServer -right-> PermDB : read/write state
+
+' ============================================================================
+' PART 2: PERMISSION LADDER MAPPING
+' ============================================================================
+package "Permission Ladder Mapping" as LadderMap {
+    
+    rectangle "Level 1: Situational" as L1 #90EE90
+    note right of L1
+        Auto-Grant: YES
+        Scopes: chat.respond, catalog.browse, product.search
+        Example: Chat interface, browse products
+    end note
+    
+    rectangle "Level 2: Brand Trust" as L2 #FFFFE0
+    note right of L2
+        Auto-Grant: NO
+        Scopes: preferences.save
+        Example: Remember preferences
+    end note
+    
+    rectangle "Level 3: Personal Relationship" as L3 #FFD700
+    note right of L3
+        Auto-Grant: NO (requires auth)
+        Scopes: history.read, profile.personalize
+        Example: Show order history
+    end note
+    
+    rectangle "Level 4: Points Permission" as L4 #FFA500
+    note right of L4
+        Auto-Grant: NO (requires loyalty)
+        Scopes: loyalty.read, offers.personalized
+        Example: VIP pricing
+    end note
+    
+    rectangle "Level 5: Agentic" as L5 #FF6B6B
+    note right of L5
+        Auto-Grant: NO (requires delegation)
+        Scopes: orders.auto_create, payment.authorize
+        Example: Auto-reorder with guardrails
+    end note
+    
+    L1 -down-> L2 : Earns trust via\nrelevant content
+    L2 -down-> L3 : Earns trust via\npersonalization value
+    L3 -down-> L4 : Earns trust via\nexclusive benefits
+    L4 -down-> L5 : Earns trust via\nconsistent reliability
+    
+    note right of L5
+      Critical: Level 5 Guardrails
+      - Product/category restrictions
+      - Price caps & budget limits
+      - Frequency constraints
+      - Require confirmation if conditions change
+      - Transparent audit trail
+      - One-command revocation
+      
+      Without guardrails, delegation becomes
+      unwanted automation (back to interruption!)
+    end note
+}
+
+@enduml
+
+' ============================================================================
+' PART 2: PERMISSION ESCALATION FLOW (Sequence Diagram)
+' ============================================================================
+@startuml Permission Escalation Flow
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Permission Escalation Flow: Coffee Auto-Reorder Journey
+
+participant User
+participant Agent
+participant MCP
+participant PermDB
+participant AuditLog
+
+group Session 1: First Visit (Situational)
+note over User, Agent
+  Level 1 permissions (chat interface, catalog browsing)
+  are auto-granted on first interaction - no opt-in required.
+  This is "situational" permission: user initiated contact.
+end note
+
+User -> Agent : [Opens chat interface]
+Agent -> MCP : check_permission("chat.respond")
+MCP -> PermDB : query scope="chat.respond"
+PermDB --> MCP : GRANTED (Level 1, auto-granted)
+MCP --> Agent : true
+Agent -> User : "Hi! I can help you find products.\nWhat are you looking for today?"
+
+User -> Agent : "Show me coffee beans"
+Agent -> MCP : check_permission("catalog.browse")
+MCP -> PermDB : query scope="catalog.browse"
+PermDB --> MCP : GRANTED (Level 1, auto-granted)
+MCP --> Agent : true
+Agent -> User : [Displays catalog: Ethiopian, Colombian, Kenyan...]
+User -> Agent : "I like this Ethiopian Yirgacheffe blend"
+end
+
+group Session 1: Permission Request (Brand Trust)
+Agent -> MCP : check_permission("preferences.save")
+MCP -> PermDB : query scope="preferences.save"
+PermDB --> MCP : NOT GRANTED (Level 2, requires opt-in)
+MCP --> Agent : false
+
+Agent -> MCP : explain_permission("preferences.save")
+MCP --> Agent : "Save user preferences to provide personalized recommendations"
+
+Agent -> User : "May I remember your coffee preferences\nfor next time? I'll suggest similar options."
+User -> Agent : "Sure"
+
+Agent -> MCP : request_permission(\n  scope="preferences.save",\n  reason="personalized recommendations",\n  duration="1 year",\n  constraints=None\n)
+MCP -> PermDB : INSERT permission_grant
+MCP -> AuditLog : LOG(action=GRANT, level=2, source=verbal_consent)
+PermDB --> MCP : permission_id="P123"
+MCP --> Agent : PermissionGrant(id=P123, granted=true)
+
+Agent -> Agent : Save preference: coffee_type="Ethiopian_Yirgacheffe"
+Agent -> User : "Got it! I'll remember you love Ethiopian blends."
+end
+
+group Session 2: Two Weeks Later (Personal Relationship)
+User -> Agent : "Hi, what did I order before?"
+
+Agent -> MCP : check_permission("history.read")
+MCP -> PermDB : query scope="history.read"
+PermDB --> MCP : NOT GRANTED (Level 3, requires auth)
+MCP --> Agent : false
+
+Agent -> User : "Welcome back! To show your past orders,\nI need access to your purchase history."
+User -> Agent : "Makes sense, go ahead"
+
+Agent -> MCP : request_permission(\n  scope="history.read",\n  reason="display order history",\n  duration="permanent"\n)
+MCP -> PermDB : INSERT permission_grant (requires auth confirmation)
+MCP -> AuditLog : LOG(action=GRANT, level=3)
+MCP --> Agent : PermissionGrant(id=P456, granted=true)
+
+Agent -> Agent : Fetch order history
+Agent -> User : "You've ordered Ethiopian Yirgacheffe 5 times\nin the last 3 months (Jan 15, Jan 28, Feb 5...)"
+end
+
+group Session 3: After 5 Purchases (Agentic Delegation)
+Agent -> Agent : Detect pattern: monthly purchase of same product
+
+Agent -> User : "I notice you buy Ethiopian Yirgacheffe\nevery month. Want me to automatically\nreorder when you're running low?"
+User -> Agent : "How would that work exactly?"
+
+Agent -> MCP : explain_permission("orders.auto_create")
+MCP --> Agent : [Returns detailed explanation:\n- Monitors usage patterns\n- Orders 2 weeks before depletion\n- Respects price caps\n- Sends notification before ordering\n- Cancel anytime with one command]
+
+Agent -> User : "I'll monitor your usage and order 2 weeks\nbefore you run out. Max $50/order, and I'll\nnotify you before each purchase.\nYou can cancel anytime by saying 'stop auto-ordering'."
+User -> Agent : "Okay, but only that specific coffee,\nnot other products"
+
+Agent -> MCP : request_permission(\n  scope="orders.auto_create",\n  reason="autonomous replenishment",\n  duration="until_revoked",\n  constraints={\n    "product_id": "ETH-YRG-001",\n    "max_price_usd": 50,\n    "frequency_limit": "monthly",\n    "require_notification": true\n  }\n)
+MCP -> MCP : Validate constraints are present (REQUIRED for Level 5)
+MCP -> PermDB : INSERT permission_grant with guardrails
+MCP -> AuditLog : LOG(action=GRANT, level=5, constraints=explicit)
+PermDB --> MCP : permission_id="P789"
+MCP --> Agent : PermissionGrant(id=P789, granted=true)
+
+Agent -> User : "Perfect! I'll take care of your coffee supply.\nYou can check or cancel anytime."
+end
+
+group Future: Autonomous Action (Agent Acts on Behalf)
+Agent -> Agent : [2 weeks later] Detect: estimated 3 days of coffee left
+
+Agent -> MCP : check_permission("orders.auto_create")
+MCP -> PermDB : query permission P789, validate constraints
+PermDB --> MCP : GRANTED with constraints
+MCP --> Agent : true + constraints object
+
+Agent -> Agent : Check current price: $42 (within $50 cap OK)
+Agent -> Agent : Check last order: 28 days ago (monthly limit OK)
+Agent -> Agent : Create order: Ethiopian Yirgacheffe 12oz
+Agent -> User : [NOTIFICATION] "I've ordered your Ethiopian\nYirgacheffe ($42). Arrives Thursday."
+
+Agent -> MCP : (Internal) log_permission_usage(P789)
+MCP -> AuditLog : LOG(action=USE, permission=P789, outcome=order_created)
+end
+
+group Revocation Flow (User Withdraws Permission)
+User -> Agent : "Stop auto-ordering coffee"
+
+Agent -> MCP : revoke_permission("P789")
+MCP -> PermDB : UPDATE permission_grant SET revoked_at=NOW()
+MCP -> AuditLog : LOG(action=REVOKE, permission=P789, source=user_initiated)
+PermDB --> MCP : success=true
+MCP --> Agent : true
+
+Agent -> Agent : Disable auto-order logic
+Agent -> User : "Done! I've stopped auto-ordering.\nYou can always browse and order manually,\nand I'll still remember your preferences."
+
+note over Agent
+  Key Principle: Graceful Degradation
+  Agent drops from Level 5 to Level 3
+  (retains preferences & history,
+  loses autonomous ordering).
+  
+  No relationship rupture - just
+  adjusted permission scope.
+end note
+end
+
+@enduml
+
+' ============================================================================
+' PART 3: PERMISSION RESOURCE SCHEMA (Data Model)
+' ============================================================================
+@startuml Permission Resource Schema
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Permission Resource Schema
+
+map "resource://permissions/user_789/current" as CurrentState {
+    user_id => user_789
+    agent_id => shopping_assistant
+}
+
+map "Permission Grant P123" as P123 #FFFFE0 {
+    permission_id => P123
+    level => 2 (Brand Trust)
+    scope => preferences.save
+}
+
+map "Permission Grant P456" as P456 #FFD700 {
+    permission_id => P456
+    level => 3 (Personal)
+    scope => history.read
+}
+
+map "Permission Grant P789" as P789 #FF6B6B {
+    permission_id => P789
+    level => 5 (Agentic)
+    scope => orders.auto_create
+}
+
+map "Constraints for P789" as C789 {
+    product_id => ETH-YRG-001
+    max_price_usd => 50
+    frequency_limit => monthly
+}
+
+map "Guardrails for P789" as G789 {
+    require_confirmation => price changes
+    auto_revoke => inactivity
+    notify_on => order_created
+}
+
+CurrentState *-down- P123
+CurrentState *-down- P456
+CurrentState *-down- P789
+P789 *-right- C789
+P789 *-right- G789
+
+rectangle "resource://permissions/user_789/ladder" as Ladder #LightBlue
+note right of Ladder
+  Shows available escalation paths
+end note
+
+map "Available Escalation Level 4" as L4Avail #FFA500 {
+    level => 4 (Points)
+    scope => loyalty.read
+    value => VIP discounts
+}
+
+Ladder -down- L4Avail
+
+rectangle "resource://permissions/user_789/audit" as Audit #LightGray
+note right of Audit
+  Permission history & compliance trail
+end note
+
+map "Audit Event 1" as E1 {
+    event_id => E001
+    action => GRANT
+    permission_id => P123
+}
+
+map "Audit Event 5" as E5 {
+    event_id => E005
+    action => GRANT
+    permission_id => P789
+    level => 5
+}
+
+map "Audit Event 12" as E12 {
+    event_id => E012
+    action => USE
+    permission_id => P789
+}
+
+Audit -down- E1
+Audit -down- E5
+Audit -down- E12
+
+note bottom of Audit
+  GDPR Article 30 Compliance
+  Audit log serves as record of processing activities:
+  - Legal basis for each permission (consent, contract, etc.)
+  - Purpose limitation enforcement
+  - Data subject rights (access, deletion, portability)
+  - Automated decision-making transparency
+  
+  Retention: 7 years post-revocation
+end note
+
+@enduml
+
+' ============================================================================
+' PART 4: KEY INSIGHTS & INTEGRATION
+' ============================================================================
+@startuml Key Insights
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Key Insights: From Interruption to Delegation
+
+frame "Traditional Interruption Marketing" as OldWay #FFE4E1 {
+    [Spray & Pray Email Blasts]
+    [Cold Calls During Dinner]
+    [Intrusive Pop-ups]
+    [Auto-Play Video Ads]
+    
+    note bottom
+      - Assumes right to interrupt
+      - One-size-fits-all messaging
+      - No earned relationship
+      - High cost, low ROI
+      - Breeds resentment
+    end note
+}
+
+frame "Permission Marketing (Pre-AI)" as MidWay #FFFFE0 {
+    [Opt-in Email Lists]
+    [Marketing Automation\nJourneys]
+    [Loyalty Programs]
+    [Inbound Content]
+    
+    note bottom
+      - Requests permission first
+      - Segmented, personalized
+      - Curriculum-based nurture
+      - Customer controls relationship
+      - Higher engagement
+    end note
+}
+
+frame "Agentic AI + Permission Marketing" as NewWay #90EE90 {
+    [Conversational Context\nNegotiation]
+    [Dynamic Permission\nEscalation]
+    [Autonomous Action\nwithin Guardrails]
+    [Value-First Delegation]
+    
+    note bottom
+      New Capabilities:
+      - Real-time permission requests
+      - Adaptive curriculum conversations
+      - Transparent constraint setting
+      - One-command revocation
+      - Proactive value demonstration
+      
+      Result: Customer delegates
+      decisions while maintaining control
+    end note
+}
+
+OldWay -right-> MidWay : Shift 1\nFrom assumed\nto earned
+MidWay -right-> NewWay : Shift 2\nFrom messages\nto actions
+
+note as N1
+  The Permission Marketing MCP enables:
+  
+  1. Multi-level consent modeling
+     Map Seth Godin's ladder to technical scopes
+  
+  2. Conversational permission negotiation
+     AI explains value, user grants/denies naturally
+  
+  3. Constraint-based delegation
+     Level 5 requires explicit guardrails
+  
+  4. Graceful degradation on revocation
+     Agent respects withdrawal without relationship rupture
+  
+  5. Audit trail for compliance & trust
+     GDPR, transparency, accountability
+  
+  Core Principle:
+  Permission is not a checkbox - it's an ongoing,
+  renewable relationship asset that must be
+  earned and can be lost.
+end note
+
+@enduml
