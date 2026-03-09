@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loutsa — Torréfacteur Artisan</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- Header -->
+<header class="site-header">
+  <div class="header-inner">
+    <h1>☕ Loutsa</h1>
+    <p class="tagline">Torréfacteur artisan — café de spécialité</p>
+    <button id="debug-toggle" class="debug-toggle" aria-label="Debug permissions">🔍 Permissions</button>
+  </div>
+</header>
+
+<!-- Debug overlay -->
+<div id="debug-overlay" class="debug-overlay hidden">
+  <div class="debug-panel">
+    <div class="debug-header">
+      <span>🔐 Permission Debug</span>
+      <span id="debug-user-id" class="debug-user-id"></span>
+      <button id="debug-close" aria-label="Close debug">✕</button>
+    </div>
+    <div id="debug-content" class="debug-content">
+      <p class="debug-empty">Click refresh to load permissions.</p>
+    </div>
+    <button id="debug-refresh" class="debug-refresh">↻ Refresh</button>
+  </div>
+</div>
+
+<!-- Welcome / discovery section -->
+<main class="products">
+  <div class="product-card">
+    <div class="product-img light">🌿</div>
+    <h3>Cafés d'origine</h3>
+    <span class="badge">single-origin</span>
+    <p>Ask me to search for single-origin coffees from Ethiopia, Colombia, and more.</p>
+  </div>
+  <div class="product-card">
+    <div class="product-img medium">☕</div>
+    <h3>Assemblages</h3>
+    <span class="badge">blend</span>
+    <p>Our artisan blends — balanced espresso or filter. Ask for today's selection.</p>
+  </div>
+  <div class="product-card">
+    <div class="product-img dark">🫘</div>
+    <h3>Espresso &amp; Dark</h3>
+    <span class="badge">espresso · dark roast</span>
+    <p>Bold, intense, designed for espresso machines. Ask me what's available.</p>
+  </div>
+  <div class="product-card">
+    <div class="product-img medium">🫙</div>
+    <h3>Décaféiné</h3>
+    <span class="badge">decaf</span>
+    <p>All the flavour, none of the caffeine. Ask me about our decaf range.</p>
+  </div>
+</main>
+
+<!-- Chat widget -->
+<button id="chat-toggle" class="chat-toggle" aria-label="Open chat">💬</button>
+
+<div id="chat-panel" class="chat-panel hidden">
+  <div class="chat-header">
+    <span>☕ Loutsa — Assistant Café</span>
+    <button id="chat-close" aria-label="Close chat">✕</button>
+  </div>
+  <div id="chat-messages" class="chat-messages">
+    <div class="msg assistant">
+      <div class="msg-content">Bonjour ! Je suis votre barista Loutsa. Posez-moi une question sur nos cafés, ajoutez des articles à votre panier, ou explorez notre gamme. ☕<br><em>Hello! Ask me about Loutsa coffees, add items to your cart, or explore our range.</em></div>
+    </div>
+  </div>
+  <form id="chat-form" class="chat-input-row" autocomplete="off">
+    <input id="chat-input" type="text" placeholder="Demandez-nous un café… / Ask about our coffees…" />
+    <button type="submit">➤</button>
+  </form>
+</div>
+
+<script src="/static/chat.js"></script>
+</body>
+</html>
