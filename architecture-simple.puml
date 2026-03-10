@@ -1,0 +1,33 @@
+@startuml architecture-simple
+!theme plain
+skinparam defaultFontSize 12
+skinparam backgroundColor #FEFEFE
+skinparam ArrowColor #444444
+skinparam componentStyle rectangle
+
+actor "User" as user
+
+package "Chat Client (Agent)" as client #LightYellow {
+    component "LLM" as llm
+}
+
+package "Permission Marketing MCP" as mcp #LightBlue {
+    component "Tools\n-------------\nrequest_permission\ncheck_permission\nrevoke_permission\nlist_permissions\nescalate_permission\nconfirm_permission" as tools
+    database "Grant Store\n-------------\nDict[id -> Grant]\nlevel: int 1-5\nrevoked_at: datetime" as db
+    collections "Audit Log\n-------------\nGRANT / CHECK\nREVOKE / ESCALATE" as audit
+}
+
+package "Shopify MCP" as shopifymcp #FFE4B5 {
+    component "Tools\n─────────────\ncreate_order\nget_products\nget_order_status\ncancel_order" as shopifytools
+    component "Shopify API" as shopifyapi
+}
+
+user --> llm : chat message
+llm --> tools : permission MCP calls
+tools --> db : read / write
+tools --> audit : append event
+
+llm --> shopifytools : shopify MCP calls
+shopifytools --> shopifyapi : HTTP call
+
+@enduml

@@ -1,3 +1,4 @@
+
 # Loutsa — Permission MCP Test Storybook
 
 A step-by-step script to walk through the demo and verify that every permission level of the Permission Marketing MCP works correctly against the **real Loutsa Shopify store**.

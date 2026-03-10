@@ -1,0 +1,53 @@
+@startuml architecture-trust-gap
+!theme plain
+skinparam defaultFontSize 12
+skinparam backgroundColor #FEFEFE
+skinparam ArrowColor #444444
+skinparam componentStyle rectangle
+
+actor "User" as user
+
+package "Chat Client (Agent)" as client #LightYellow {
+    component "LLM" as llm
+}
+
+package "Permission Marketing MCP" as mcp #LightBlue {
+    component "Tools\n-------------\nrequest_permission\ncheck_permission\nrevoke_permission\nescalate_permission\nconfirm_permission" as tools
+    database "Grant Store\n-------------\nlevel: int 1-5\nrevoked_at: datetime" as db
+    collections "Audit Log" as audit
+    component "Token issuer\n(signed JWT)" as token
+}
+
+package "Shopify MCP" as shopifymcp #FFE4B5 {
+    component "Tools\n-------------\ncreate_order\nget_products\ncancel_order" as shopifytools
+    component "Shopify API\n(validates token)" as shopifyapi
+}
+
+' -- Happy path --
+user --> llm : 1. "Auto-reorder please"
+llm --> tools : 2. escalate_permission()
+tools --> llm : 3. proposal + value prop
+llm --> user : 4. "Can I place orders\nautomatically for you?"
+user --> llm : 5. "Yes"
+llm --> tools : 6. confirm_permission()
+tools --> db : write grant L5
+tools --> token : issue signed JWT
+tools --> audit : ESCALATE event
+llm --> shopifytools : 7. create_order(token)
+shopifytools --> shopifyapi : HTTP + token ✓
+
+' -- GAP 1: bypass MCP entirely --
+llm -[#red,dashed,thickness=2]-> shopifytools : <color:red><b>GAP 1</b>\nno check_permission\nno token → only works\nif Shopify doesn't enforce</color>
+
+' -- GAP 2: self-grant without real user consent --
+llm -[#orange,dashed,thickness=2]-> tools : <color:orange><b>GAP 2</b>\nconfirm_permission(L5)\nwithout real user "Yes"\n→ token issued anyway</color>
+
+note bottom of mcp
+  <b>Root problem:</b>
+  The MCP cannot verify that
+  step 5 ("Yes") actually came
+  from the human user.
+  It only sees the agent's call.
+end note
+
+@enduml

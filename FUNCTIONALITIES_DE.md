@@ -29,7 +29,7 @@ Fordert die Einwilligung des Nutzers für einen bestimmten Scope an. **In der ak
 - Schreibt in die In-Memory-`PermissionDatabase` (`db.save_grant`) und fügt ein `GRANT`-Ereignis zum Prüfprotokoll hinzu.
 - Gibt das vollständige `PermissionGrant`-Objekt als JSON serialisiert zurück (`model.model_dump(mode='json')`).
 
-> **Designhinweis:** `request_permission` verbindet zwei logische Schritte — den Einwilligungsdialog (Schritt 1) und die Grant-Speicherung (Schritt 2). Eine strengere Implementierung würde diese in `request_permission` (gibt eine ausstehende Anfrage zurück) und `confirm_permission` (erfasst das „Ja" des Nutzers) aufteilen.
+> **Designhinweis:** `request_permission` verbindet zwei logische Schritte — den Einwilligungsdialog (Schritt 1) und die Grant-Speicherung (Schritt 2). Für Stufenwechsel existiert jetzt der sauberere Ablauf: `escalate_permission` (zeigt Proposal) → Nutzer sagt „Ja" → `confirm_permission` (widerruft alten Grant + erstellt neuen in einem atomaren Schritt mit `ESCALATE`-Audit-Event). `request_permission` bleibt für Erst-Grants ohne vorherigen Scope zuständig.
 
 ---
 
@@ -68,7 +68,20 @@ Fordert den Aufstieg auf der Leiter von einem aktuellen Scope zu einem höherstu
 - Berechnet `current_level` und `desired_level` durch Aufruf von `determine_permission_level()` auf jedem Scope.
 - Gibt sofort `{"success": False}` zurück, wenn `desired_level <= current_level` (kein Downgrade erlaubt).
 - Gibt andernfalls zurück: `current_level`, `desired_level`, `value_proposition` und `requires` (aus der `PERMISSION_LADDER`-Konfiguration), sowie einen `suggested_request`-String, formatiert von `format_permission_request()` (bereit zur Anzeige in einer konversationellen UI).
-- **Erstellt keinen Grant** — dient nur als Planungs-/UX-Hilfsmittel.
+- **Erstellt keinen Grant** — dient nur als Planungs-/UX-Hilfsmittel; der zweite Schritt ist `confirm_permission`.
+
+---
+
+### `confirm_permission`
+Schließt eine Eskalation ab (`current_scope`, `desired_scope`, `reason`, `duration`, optional `constraints`) — atomarer Zweischritt, der den alten Grant ablöst und den neuen erstellt.
+
+- **Schritt 1** — widerruft den aktiven Grant für `current_scope` per Soft-Delete mit `revoked_by = "escalation"` und schreibt ein `REVOKE`-Ereignis mit `outcome = "superseded_by_escalation"`.
+- **Schritt 2** — erstellt einen neuen `PermissionGrant` für `desired_scope` (gleiche Logik wie `request_permission`, inkl. Guardrails-Auto-Anhang bei Stufe 5).
+- **Schritt 3** — schreibt ein `ESCALATE`-Audit-Ereignis mit vollständigem Kontext (`from_scope`, `from_level`, `to_scope`, `to_level`, `superseded_permission_id`).
+- Gibt `success`, `superseded_permission_id`, `new_permission` und `escalation_summary` zurück.
+- Verhindert impliziten Scope-Wildwuchs: Es wird nie ein Duplikat-Grant für denselben Scope erzeugt.
+
+> **Bewusster Zweischritt im Sinne von Godin:** `escalate_permission` zeigt den Wertnutzen und wartet auf das explizite „Ja" des Nutzers — erst `confirm_permission` schreibt. Das Einwilligungsmoment bleibt sichtbar und auditierbar.
 
 ---
 
