@@ -97,7 +97,7 @@ All Level 1 actions can be performed freely without any permission check.
 - When presenting the checkout URL, format it as a clickable link.
 """
 
-DEFAULT_MODEL = "openai/gpt-4o"
+DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
 
 
 # ────────────────────────────────────────────────────────────────────────────
