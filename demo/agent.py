@@ -1,12 +1,16 @@
 """
 Bean & Brew — Agent
 ====================
-Bridges OpenRouter (OpenAI-compatible) LLM with:
+Bridges OpenAI LLM with:
   • Permission MCP server  (via stdio  — manages consent)
   • Shopify native MCP     (via HTTP   — real Loutsa coffee store)
 
 The agent exposes BOTH as "tools" to the LLM so it can seamlessly
 check permissions before performing shop actions.
+
+History summarisation: when a conversation exceeds SUMMARY_THRESHOLD
+non-system messages, old messages are compressed into a single summary
+message, keeping only the most recent SUMMARY_KEEP_RECENT messages.
 """
 
 from __future__ import annotations
@@ -77,9 +81,14 @@ Operational rules:
 3. For checkout, MUST check/grant `checkout` scope (Level 3) before sharing the checkout URL. Do NOT include the checkout URL in the same response as an address update — address and checkout are separate steps.
 4. For any Level 2+ scope you need, if NOT already granted:
    a. Call `request_permission`, explain the value to the user.
-   b. Ask the user to approve. Do NOT call `grant_permission` yourself.
-   c. When the user agrees, THEN call `grant_permission`.
-   d. Proceed.
+   b. Ask the user to approve. Do NOT call `grant_permission` yourself yet.
+   c. When the user says yes/agrees/sure/ok → you MUST call `grant_permission` IMMEDIATELY.
+      This is non-negotiable: grant_permission MUST be called before you confirm to the user.
+      Never say "I've saved it" or "permission granted" without first calling grant_permission.
+   d. Only after grant_permission succeeds, confirm to the user and proceed.
+
+5. When the user asks about permission levels, how permissions work, or the permission ladder
+   → ALWAYS call `get_permission_ladder` first; never answer from memory alone.
 
 All Level 1 actions can be performed freely without any permission check.
 
@@ -97,7 +106,13 @@ All Level 1 actions can be performed freely without any permission check.
 - When presenting the checkout URL, format it as a clickable link.
 """
 
-DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
+DEFAULT_MODEL = "gpt-4o"
+
+SUMMARY_THRESHOLD = 20   # trigger summarisation after this many non-system messages
+SUMMARY_KEEP_RECENT = 6  # keep last N non-system messages after summarising
+
+# Retry delays (seconds) for 429 rate-limit responses — tried in order
+_RETRY_DELAYS = [15, 30, 60, 90, 120]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -106,9 +121,9 @@ DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
 
 class Agent:
     def __init__(self):
-        self.api_key = os.environ.get("OPENROUTER_API_KEY", "")
-        self.model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
-        self.base_url = "https://openrouter.ai/api/v1"
+        self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        self.model = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
+        self.base_url = "https://api.openai.com/v1"
         self._conversations: dict[str, list[dict[str, Any]]] = {}  # per-user
         self._perm_tools: list[dict[str, Any]] = []   # discovered from Permission MCP
         self._shopify_tools: list[dict[str, Any]] = []  # discovered from Shopify MCP
@@ -200,13 +215,88 @@ class Agent:
         messages.append({"role": "user", "content": user_message})
         return AsyncChatStream(self, user_id)
 
+    # ── history summarisation ──────────────────────────────────────────────
+
+    async def _maybe_summarise(self, user_id: str) -> None:
+        """Compress old history into a summary when it grows too long.
+
+        Keeps: [system_prompt, summary_message, *last SUMMARY_KEEP_RECENT messages]
+        """
+        messages = self._get_messages(user_id)
+        non_system = [m for m in messages if m["role"] != "system"]
+        if len(non_system) <= SUMMARY_THRESHOLD:
+            return
+
+        system_msg = messages[0]
+        to_summarise = messages[1: -SUMMARY_KEEP_RECENT]
+        recent = messages[-SUMMARY_KEEP_RECENT:]
+
+        summary_prompt = (
+            "You are a summarisation assistant. "
+            "Produce a concise but complete summary of the following conversation excerpt. "
+            f"CRITICAL: The user_id for ALL permission tool calls is: {user_id} — always preserve this exactly. "
+            "Preserve key facts: user_id, what the user asked, what products/items were discussed, "
+            "cart state, permissions granted or requested, and any pending actions. "
+            "Reply with the summary only, no extra commentary.\n\n"
+            + "\n".join(
+                f"{m['role'].upper()}: {m.get('content') or ''}"
+                for m in to_summarise
+                if m.get("content")
+            )
+        )
+
+        summary: str | None = None
+        for attempt in range(len(_RETRY_DELAYS) + 1):
+            if attempt > 0:
+                wait = _RETRY_DELAYS[attempt - 1]
+                print(f"[agent] summarisation 429 — retrying in {wait}s (attempt {attempt}/{len(_RETRY_DELAYS)})...")
+                await asyncio.sleep(wait)
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    resp = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.api_key}",
+                                 "Content-Type": "application/json"},
+                        json={
+                            "model": self.model,
+                            "messages": [{"role": "user", "content": summary_prompt}],
+                            "stream": False,
+                        },
+                    )
+                    if resp.status_code == 429 and attempt < len(_RETRY_DELAYS):
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    summary = data["choices"][0]["message"]["content"].strip()
+                    break
+            except Exception as exc:
+                if attempt < len(_RETRY_DELAYS):
+                    continue
+                print(f"[agent] summarisation failed after {attempt + 1} attempts, keeping full history: {exc}")
+                return
+        if summary is None:
+            print("[agent] summarisation gave up — keeping full history")
+            return
+
+        self._conversations[user_id] = [
+            system_msg,
+            {"role": "assistant",
+             "content": f"[Conversation summary — older messages compressed]\nUser ID: {user_id}\n{summary}"},
+            *recent,
+        ]
+        print(
+            f"[agent] history summarised for {user_id!r}: "
+            f"{len(to_summarise)} messages → 1 summary + {len(recent)} recent"
+        )
+
     async def _run_turn(self, user_id: str, *, on_token=None, on_tool_start=None, on_tool_end=None):
         """Execute LLM turns until a final text response (handles tool loops)."""
+        await self._maybe_summarise(user_id)
         tools = self._all_tools()
         messages = self._get_messages(user_id)
 
         while True:
-            # ── call LLM (streamed) ────────────────────────────────────
+            # ── call LLM (streamed) with retry on 429 ─────────────────
             payload = {
                 "model": self.model,
                 "messages": messages,
@@ -217,55 +307,77 @@ class Agent:
             content = ""
             tc_raw: list[dict] = []
 
-            async with httpx.AsyncClient(timeout=120) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}",
-                             "Content-Type": "application/json"},
-                    json={k: v for k, v in payload.items() if v is not None},
-                ) as resp:
-                    if resp.status_code != 200:
-                        body = await resp.aread()
-                        err = f"LLM error {resp.status_code}: {body.decode()}"
-                        if on_token:
-                            await on_token(err)
-                        messages.append({"role": "assistant", "content": err})
-                        return
+            for attempt in range(len(_RETRY_DELAYS) + 1):
+                if attempt > 0:
+                    wait = _RETRY_DELAYS[attempt - 1]
+                    print(f"[agent] 429 TPM rate limit — retrying in {wait}s (attempt {attempt}/{len(_RETRY_DELAYS)})...")
+                    await asyncio.sleep(wait)
 
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:]
-                        if data.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
+                _got_429 = False
+                content = ""
+                tc_raw = []
 
-                        if delta.get("content"):
-                            content += delta["content"]
+                async with httpx.AsyncClient(timeout=120) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.api_key}",
+                                 "Content-Type": "application/json"},
+                        json={k: v for k, v in payload.items() if v is not None},
+                    ) as resp:
+                        if resp.status_code == 429:
+                            _got_429 = True
+                        elif resp.status_code != 200:
+                            body = await resp.aread()
+                            err = f"LLM error {resp.status_code}: {body.decode()}"
                             if on_token:
-                                await on_token(delta["content"])
+                                await on_token(err)
+                            messages.append({"role": "assistant", "content": err})
+                            return
+                        else:
+                            async for line in resp.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                data = line[6:]
+                                if data.strip() == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                except json.JSONDecodeError:
+                                    continue
+                                choices = chunk.get("choices") or []
+                                if not choices:
+                                    continue
+                                delta = choices[0].get("delta", {})
 
-                        if delta.get("tool_calls"):
-                            for tc in delta["tool_calls"]:
-                                idx = tc["index"]
-                                while len(tc_raw) <= idx:
-                                    tc_raw.append({"id": "", "function": {"name": "", "arguments": ""}})
-                                entry = tc_raw[idx]
-                                if tc.get("id"):
-                                    entry["id"] = tc["id"]
-                                fn = tc.get("function", {})
-                                if fn.get("name"):
-                                    entry["function"]["name"] += fn["name"]
-                                if fn.get("arguments"):
-                                    entry["function"]["arguments"] += fn["arguments"]
+                                if delta.get("content"):
+                                    content += delta["content"]
+                                    if on_token:
+                                        await on_token(delta["content"])
+
+                                if delta.get("tool_calls"):
+                                    for tc in delta["tool_calls"]:
+                                        idx = tc["index"]
+                                        while len(tc_raw) <= idx:
+                                            tc_raw.append({"id": "", "function": {"name": "", "arguments": ""}})
+                                        entry = tc_raw[idx]
+                                        if tc.get("id"):
+                                            entry["id"] = tc["id"]
+                                        fn = tc.get("function", {})
+                                        if fn.get("name"):
+                                            entry["function"]["name"] += fn["name"]
+                                        if fn.get("arguments"):
+                                            entry["function"]["arguments"] += fn["arguments"]
+
+                if _got_429 and attempt < len(_RETRY_DELAYS):
+                    continue
+                if _got_429:
+                    err = f"LLM error 429: rate limit exhausted after {len(_RETRY_DELAYS)} retries"
+                    if on_token:
+                        await on_token(err)
+                    messages.append({"role": "assistant", "content": err})
+                    return
+                break  # success — exit retry loop
 
             # ── no tool calls → done ───────────────────────────────────
             if not tc_raw:

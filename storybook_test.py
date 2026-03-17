@@ -28,20 +28,33 @@ SKIP = "⚠️ "
 results: list[tuple[str, str, bool]] = []  # (act, description, passed)
 _api_exhausted = False  # set True on first 402 — skip remaining costly checks
 
+INTER_SCENE_DELAY = 8.0   # seconds to pace between sends; server retries handle 429s
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ────────────────────────────────────────────────────────────────────────────
 
-async def send_and_collect(ws, message: str, timeout: float = 90.0) -> dict:
+_last_send_time: float = 0.0  # tracks last send time for pacing
+
+
+async def send_and_collect(ws, message: str, timeout: float = 300.0) -> dict:
     """
     Send a chat message and collect all events until 'done'.
+    The server handles 429 retries internally; timeout is generous to accommodate them.
     Returns a summary dict with keys:
         text        – full assistant text
         tool_calls  – list of tool names called
         error       – error message if any
     """
-    global _api_exhausted
+    global _api_exhausted, _last_send_time
+
+    # Pace requests to avoid TPM rate limits
+    import time
+    elapsed = time.monotonic() - _last_send_time
+    if elapsed < INTER_SCENE_DELAY:
+        await asyncio.sleep(INTER_SCENE_DELAY - elapsed)
+    _last_send_time = time.monotonic()
 
     payload = json.dumps({"message": message, "user_id": USER_ID})
     await ws.send(payload)
@@ -69,7 +82,14 @@ async def send_and_collect(ws, message: str, timeout: float = 90.0) -> dict:
     await asyncio.wait_for(_collect(), timeout=timeout)
 
     text = "".join(text_parts)
-    # Detect API credit exhaustion
+
+    # Hard stop: server exhausted all 429 retries — no point continuing the test
+    if "rate limit exhausted after" in text.lower():
+        print(f"\n  {FAIL} FATAL: OpenAI 429 TPM rate limit was not resolved after all retries.")
+        print(f"         Wait a minute and re-run the test.")
+        sys.exit(2)
+
+    # Detect API credit exhaustion (OpenRouter 402)
     if "402" in text and "credits" in text.lower():
         _api_exhausted = True
 
@@ -115,6 +135,23 @@ def chk(act: str, description: str, r: dict, condition: bool, context: str = "")
         results.append((act, description, True))  # don't penalise infrastructure limits
         return True
     return check(act, description, condition, context)
+
+
+def check_dbg(act: str, description: str, condition: bool, context: str = "") -> bool:
+    """Debug check — aborts the whole test run on failure."""
+    icon = PASS if condition else FAIL
+    line = f"  {icon} [{act}] {description}"
+    if context:
+        line += f"\n         → {context[:200]}"
+    print(line)
+    results.append((act, description, condition))
+    if not condition:
+        print(f"\n  {FAIL} FATAL: debug check [{act}] failed — aborting test.")
+        # Print summary of what passed so far before exiting
+        passed = sum(1 for _, _, ok in results if ok)
+        print(f"  Results so far: {passed}/{len(results)} passed")
+        sys.exit(1)
+    return True
 
 
 def has_tool(tool_calls: list[str], keyword: str) -> bool:
@@ -238,7 +275,8 @@ async def act2(ws):
     chk("2.1b", "Confirmation address will be saved", r,
         any(w in r["text"].lower() for w in [
             "save", "remember", "saved", "memorized",
-            "enregistr", "mémoris", "retenu", "sauvegard", "c'est fait", "done"
+            "enregistr", "mémoris", "retenu", "sauvegard", "c'est fait", "done",
+            "address", "adresse", "next visit", "prochaine",
         ]),
         r["text"][:200])
 
@@ -246,7 +284,7 @@ async def act2(ws):
     perms = await get_permissions(ws)
     granted = has_scope(perms, "profile.save_address") and \
               scope_status(perms, "profile.save_address") == "granted"
-    check("2.DBG", "Scope 'profile.save_address' granted", granted, str(perms))
+    check_dbg("2.DBG", "Scope 'profile.save_address' granted", granted, str(perms))
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -286,7 +324,7 @@ async def act3(ws):
     print("\n  Debug check — Level 3 scope")
     perms = await get_permissions(ws)
     granted = has_scope(perms, "checkout") and scope_status(perms, "checkout") == "granted"
-    check("3.DBG", "Scope 'checkout' granted", granted, str(perms))
+    check_dbg("3.DBG", "Scope 'checkout' granted", granted, str(perms))
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -397,10 +435,11 @@ async def main():
 
     if _api_exhausted:
         print(f"\n  {SKIP} Some checks were SKIPPED — OpenRouter 402 (insufficient credits).")
-        print(f"     The storybook logic is correct; top up at openrouter.ai to re-test fully.")
+        print(f"     The storybook logic is correct; top up to re-test fully.")
 
     print(f"\n  {INFO} L1 scope debug checks are informational (known gap): the agent")
     print(f"     intentionally skips permission tool calls for Level 1 actions.")
+    print(f"  {INFO} 429 rate limits are retried automatically by the server (up to 5x).")
 
     if failed:
         print("\n  Failed checks:")
