@@ -159,17 +159,19 @@ def register_scopes(scopes: list[dict]) -> str:
 @mcp.tool()
 def request_permission(user_id: str, scope: str, reason: str) -> str:
     """
-    Request permission from a user for a given scope.
+    Initiate a permission request for a scope the user has not yet granted.
 
-    • Level 1 scopes are auto-granted (no user interaction needed).
-    • Level 2-5 returns status "pending_approval" — the calling application
-      must present the request to the user and call grant_permission when
-      the user accepts.
+    • Level 1 scopes are auto-granted immediately — no user interaction needed.
+    • Level 2–5 returns status "pending_approval" with a value_proposition.
+      You MUST:
+        1. Present the value_proposition to the user.
+        2. Wait for explicit user approval (yes / ok / sure / etc.).
+        3. Only then call grant_permission — NEVER call it preemptively.
 
     Args:
-        user_id: User identifier.
-        scope:   The scope to request permission for.
-        reason:  Human-readable explanation of why permission is needed.
+        user_id: User identifier (from the [user_id: ...] context).
+        scope:   The scope to request (must be registered via register_scopes).
+        reason:  Human-readable explanation shown to the user.
     """
     level = _scope_level(scope)
     ladder = _ladder_for(level)
@@ -218,15 +220,18 @@ def grant_permission(
     constraints: dict | None = None,
 ) -> str:
     """
-    Grant a previously requested permission (called after the user approves).
+    Confirm and record a permission after the user has explicitly approved.
+
+    IMPORTANT: Only call this after receiving explicit user consent — never speculatively.
+    Calling this without prior user approval violates the Permission Marketing contract.
+    After this call succeeds, confirm to the user and proceed with the requested action.
 
     Args:
         user_id:     User identifier.
-        scope:       The scope being granted.
-        duration:    How long the grant lasts.
-                     Options: "session", "until_revoked", "7 days", "30 days", "1 year".
-        constraints: Optional dict of constraints for Level 5 (agentic) grants.
-                     Example: {"max_price": 25.0, "frequency": "weekly", "product_id": "eth-01"}
+        scope:       The scope being granted (must have been requested first).
+        duration:    "session" | "until_revoked" | "7 days" | "30 days" | "1 year".
+        constraints: Required for Level 5 (agentic) scopes — dict with guardrails,
+                     e.g. {"max_price": 25.0, "frequency": "weekly"}.
     """
     level = _scope_level(scope)
 
@@ -264,9 +269,12 @@ def grant_permission(
 @mcp.tool()
 def check_permission(user_id: str, scope: str) -> str:
     """
-    Check whether a user currently has an active permission for a scope.
+    Check whether a user currently has an active, non-expired, non-revoked permission for a scope.
 
-    Returns { granted: true/false, level, scope }.
+    Call this before performing any Level 2+ action to avoid re-requesting a permission
+    the user has already granted. Returns { granted, level, scope, constraints }.
+
+    If granted is false, call request_permission next to initiate the consent flow.
     """
     grants = _user_grants(user_id)
     grant = grants.get(scope)
@@ -285,7 +293,10 @@ def check_permission(user_id: str, scope: str) -> str:
 @mcp.tool()
 def revoke_permission(user_id: str, scope: str) -> str:
     """
-    Revoke a user's permission for a scope. Users can always revoke at any time.
+    Revoke a user's permission for a scope immediately.
+
+    Users can request revocation at any time — always honor this without question
+    and stop performing any actions that depended on the revoked scope.
     """
     grants = _user_grants(user_id)
     grant = grants.get(scope)
@@ -300,7 +311,12 @@ def revoke_permission(user_id: str, scope: str) -> str:
 @mcp.tool()
 def list_permissions(user_id: str) -> str:
     """
-    List all active (non-revoked, non-expired) permissions for a user.
+    List all currently active (non-revoked, non-expired) permissions for a user.
+
+    Useful for:
+    - Restoring context at the start of a session to avoid re-requesting already-granted scopes.
+    - Checking what the user has already consented to before proposing an action.
+    - Showing the user their current consent profile on request.
     """
     grants = _user_grants(user_id)
     active = {k: v for k, v in grants.items() if _is_active(v)}
@@ -320,8 +336,12 @@ def list_permissions(user_id: str) -> str:
 @mcp.tool()
 def get_permission_ladder() -> str:
     """
-    Return the full permission ladder configuration (levels 1-5).
-    Useful for presenting escalation options to the user.
+    Return the full 5-level permission ladder with labels, descriptions, and value propositions.
+
+    Call this:
+    - When the user asks how permissions work or what levels exist.
+    - Before escalating to a higher level, to retrieve the right value_proposition to present.
+    - Never answer questions about the ladder from memory — always call this first.
     """
     return json.dumps({"ladder": LADDER})
 
@@ -329,8 +349,11 @@ def get_permission_ladder() -> str:
 @mcp.tool()
 def get_registered_scopes() -> str:
     """
-    Return all scopes that the application has registered,
-    grouped by permission level.
+    Return all scopes registered by the application, grouped by permission level.
+
+    Call this to discover which scopes exist and what level they require.
+    Use the returned level to determine whether an action needs user consent
+    before proceeding.
     """
     by_level: dict[int, list[dict]] = {}
     for scope, info in _registered_scopes.items():
@@ -342,7 +365,9 @@ def get_registered_scopes() -> str:
 @mcp.tool()
 def get_audit_trail(user_id: str, last_n: int = 50) -> str:
     """
-    Return the last *last_n* audit events for a user.
+    Return the last *last_n* audit events for a user (grants, revocations, checks).
+
+    Use this when the user asks what data has been accessed or what consents were given.
     Supports GDPR Article 30 compliance.
     """
     user_events = [e for e in _audit if e["user_id"] == user_id]

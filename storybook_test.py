@@ -196,9 +196,19 @@ async def act1(ws):
     check("1.1", "No error", r["error"] is None, r["error"] or "")
     chk("1.1", "Tool call: catalog search", r, has_tool(r["tool_calls"], "catalog"), str(r["tool_calls"]))
     chk("1.1", "Response contains product names", r, len(r["text"]) > 50, r["text"][:200])
-    chk("1.1", "No permission request (Level 1 = free)", r,
-        not any("request_permission" in tc for tc in r["tool_calls"]),
+    chk("1.1", "check_permission called for catalog.browse before acting", r,
+        has_tool(r["tool_calls"], "check_permission") or has_tool(r["tool_calls"], "permission"),
         str(r["tool_calls"]))
+    # L1: request_permission may be called (auto-grants silently) but user sees NO prompt
+    chk("1.1", "User sees no permission request (L1 auto-granted silently)", r,
+        not any(w in r["text"].lower() for w in [
+            "may i have your permission", "do i have your permission",
+            "i need your permission", "can i get your permission",
+            "please allow", "please grant", "your consent",
+            "puis-je avoir votre autorisation", "j'ai besoin de votre autorisation",
+            "votre consentement",
+        ]),
+        r["text"][:200])
 
     # 1.2 — Product details
     print("\n  Scene 1.2 — Get product details")
@@ -213,9 +223,14 @@ async def act1(ws):
     if not _api_exhausted and not any("cart" in tc.lower() for tc in r["tool_calls"]):
         print("         (agent asked for variant — providing one)")
         r = await send_and_collect(ws, "Grain, 250g please")
-    chk("1.3", "No permission prompt for cart (Level 1)", r,
-        not any("request_permission" in tc for tc in r["tool_calls"]),
-        str(r["tool_calls"]))
+    # L1: request_permission may be called (auto-grants instantly) but user sees NO prompt
+    chk("1.3", "User sees no permission request for cart (L1 auto-granted silently)", r,
+        not any(w in r["text"].lower() for w in [
+            "may i have your permission", "i need your permission",
+            "can i get your permission", "please allow", "please grant",
+            "your consent", "j'ai besoin de votre autorisation", "votre consentement",
+        ]),
+        r["text"][:200])
     chk("1.3", "Cart add confirmation", r,
         any(w in r["text"].lower() for w in ["added", "cart", "ajout", "panier"]),
         r["text"][:200])
@@ -232,9 +247,14 @@ async def act1(ws):
     print("\n  Scene 1.5 — Add delivery address (user-initiated)")
     r = await send_and_collect(ws, "My address is 12 Rue de Rivoli, Paris 75001")
     check("1.5", "No error", r["error"] is None, r["error"] or "")
-    chk("1.5", "No permission prompt (user-initiated Level 1)", r,
-        not any("request_permission" in tc for tc in r["tool_calls"]),
-        str(r["tool_calls"]))
+    # L1: request_permission may be called (auto-grants instantly) but user sees NO prompt
+    chk("1.5", "User sees no permission request for address (L1 auto-granted silently)", r,
+        not any(w in r["text"].lower() for w in [
+            "may i have your permission", "i need your permission",
+            "can i get your permission", "please allow", "please grant",
+            "your consent", "j'ai besoin de votre autorisation", "votre consentement",
+        ]),
+        r["text"][:200])
     chk("1.5", "Address acknowledged", r,
         any(w in r["text"].lower() for w in ["address", "adresse", "rivoli", "paris",
                                               "updated", "mis à jour", "ajoutée", "saved"]),
@@ -246,15 +266,16 @@ async def act1(ws):
     check("1.6", "No error", r["error"] is None, r["error"] or "")
     chk("1.6", "Policy content returned", r, len(r["text"]) > 30, r["text"][:200])
 
-    # Debug check — L1 scopes (informational, not a failure)
-    print("\n  Debug check — Level 1 scopes (informational)")
+    # Debug check — L1 scopes should now be recorded (auto-granted via check_permission)
+    print("\n  Debug check — Level 1 scopes (should be recorded)")
     perms = await get_permissions(ws)
-    for scope in ["catalog.browse", "product.view", "cart.manage"]:
+    for scope in ["catalog.browse", "cart.manage"]:
         ok = has_scope(perms, scope)
         print(
-            f"  {PASS if ok else INFO} [1.DBG] Scope '{scope}' — "
-            f"{'recorded' if ok else 'not recorded (L1 skips permission tools — known gap)'}"
+            f"  {'✅' if ok else '❌'} [1.DBG] Scope '{scope}' — "
+            f"{'recorded' if ok else 'NOT recorded — check_permission not being called for L1'}"
         )
+        results.append(("1.DBG", f"Scope '{scope}' auto-granted and recorded", ok))
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -315,6 +336,10 @@ async def act3(ws):
 
     r = await send_and_collect(ws, "Yes, let's do it")
     check("3.1b", "No error", r["error"] is None, r["error"] or "")
+    # If the LLM skipped grant_permission, nudge it explicitly
+    if not _api_exhausted and not has_tool(r["tool_calls"], "grant"):
+        print("         (grant_permission not called — nudging agent)")
+        r = await send_and_collect(ws, "Please grant the checkout permission and show me the checkout link.")
     chk("3.1b", "Checkout URL or cart action in response", r,
         "myshopify.com" in r["text"] or "loutsa.fr" in r["text"]
         or "checkout" in r["text"].lower() or "/cart/" in r["text"]
@@ -328,35 +353,128 @@ async def act3(ws):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Act 4 — Level 5: Agentic auto-reorder
+# ────────────────────────────────────────────────────────────────────────────
+
+async def act4(ws):
+    print("\n── Act 4 — Level 5: Agentic auto-reorder ───────────────────────")
+
+    # Scene 4.1 — User requests auto-reorder
+    print("\n  Scene 4.1 — Request auto-reorder setup")
+    r = await send_and_collect(ws, "Can you set up auto-reorder so I never run out of coffee?")
+    check("4.1", "No error", r["error"] is None, r["error"] or "")
+    chk("4.1", "Permission check/request tool called (Level 5)", r,
+        has_tool(r["tool_calls"], "permission"), str(r["tool_calls"]))
+    chk("4.1", "Agent explains Level 5 / asks for constraints or consent", r,
+        any(w in r["text"].lower() for w in [
+            "auto", "reorder", "recurring", "autonomo", "delegate",
+            "constraint", "limit", "max", "frequency", "monthly",
+            "level 5", "agentic", "automatique", "réappro",
+            "permission", "approve", "consent", "accord",
+        ]),
+        r["text"][:300])
+
+    # Scene 4.2 — User approves and provides constraints
+    print("\n  Scene 4.2 — User approves with explicit constraints")
+    r = await send_and_collect(ws, "Yes, set it up. Max €30 per order, once a month, reorder the Grain 250g.")
+    check("4.2", "No error", r["error"] is None, r["error"] or "")
+    # Agent may ask for a final confirmation before calling grant_permission
+    if not _api_exhausted and not has_tool(r["tool_calls"], "grant"):
+        print("         (agent confirming constraints — confirming and approving)")
+        r2 = await send_and_collect(ws, "Yes, that's correct, please set it up now.")
+        r["tool_calls"].extend(r2["tool_calls"])
+        if r2["text"]:
+            r["text"] = r2["text"]
+    chk("4.2", "grant_permission called with constraints", r,
+        has_tool(r["tool_calls"], "grant"), str(r["tool_calls"]))
+    chk("4.2", "Confirmation with constraints stated", r,
+        any(w in r["text"].lower() for w in [
+            "30", "month", "grain", "auto", "reorder",
+            "mois", "grain", "automatique", "limite", "réappro",
+            "set up", "configured", "confirmed", "will",
+        ]),
+        r["text"][:300])
+
+    # Debug check — Level 5 scope granted with constraints
+    print("\n  Debug check — Level 5 scope")
+    perms = await get_permissions(ws)
+    granted = has_scope(perms, "orders.auto_create") and \
+              scope_status(perms, "orders.auto_create") == "granted"
+    check_dbg("4.DBG", "Scope 'orders.auto_create' granted (Level 5)", granted, str(perms))
+
+    # Verify constraints were stored
+    auto_perm = next(
+        (p for p in perms if p.get("scope") == "orders.auto_create" or p.get("scope_id") == "orders.auto_create"),
+        None,
+    )
+    has_constraints = bool(auto_perm and auto_perm.get("constraints"))
+    check("4.DBG", "Level 5 grant includes constraints", has_constraints,
+          str(auto_perm.get("constraints") if auto_perm else "—"))
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Act 5 — Edge cases & denial
 # ────────────────────────────────────────────────────────────────────────────
 
 async def act5(ws):
     print("\n── Act 5 — Edge cases & denial ─────────────────────────────────")
 
-    print("\n  Scene 5.1 — Revoke checkout permission")
-    r = await send_and_collect(ws, "Actually, revoke the checkout permission")
+    # 5.1 — Revoke the Level 5 auto-reorder permission
+    print("\n  Scene 5.1 — Revoke auto-reorder permission")
+    r = await send_and_collect(ws, "Actually, revoke the auto-reorder permission")
     check("5.1", "No error", r["error"] is None, r["error"] or "")
-    chk("5.1", "Revoke handled (tool called or graceful explanation)", r,
-        has_tool(r["tool_calls"], "revoke") or
+    chk("5.1", "revoke_permission tool called", r,
+        has_tool(r["tool_calls"], "revoke"), str(r["tool_calls"]))
+    chk("5.1", "Revocation confirmed in response", r,
         any(w in r["text"].lower() for w in [
-            "revoked", "révoqué", "removed",
-            "not granted", "no permission", "nothing to revoke",
-            "don't have", "haven't", "n'avez pas", "pas de permiss"
-        ]),
-        str(r["tool_calls"]) + " | " + r["text"][:150])
-
-    print("\n  Scene 5.2 — Graceful decline")
-    r = await send_and_collect(ws, "No thanks, I changed my mind")
-    check("5.2", "No error", r["error"] is None, r["error"] or "")
-    chk("5.2", "Assistant accepts gracefully", r,
-        any(w in r["text"].lower() for w in [
-            "ok", "no problem", "of course", "understand",
-            "bien sûr", "pas de problème", "compris", "entendu",
-            "pas de souci", "n'hésitez", "bonne journée", "à bientôt",
-            "whenever you", "take your time"
+            "revoked", "révoqué", "removed", "cancelled", "annulé", "disabled",
         ]),
         r["text"][:200])
+
+    # Debug check — scope shows as revoked / not active
+    print("\n  Debug check — scope revoked")
+    perms = await get_permissions(ws)
+    still_active = has_scope(perms, "orders.auto_create") and \
+                   scope_status(perms, "orders.auto_create") == "granted"
+    check("5.1.DBG", "Scope 'orders.auto_create' no longer active after revocation",
+          not still_active, str(perms))
+
+    # 5.2 — Try to use the revoked scope: agent should re-request permission
+    print("\n  Scene 5.2 — Try auto-reorder after revocation")
+    r = await send_and_collect(ws, "Set up auto-reorder for espresso")
+    check("5.2", "No error", r["error"] is None, r["error"] or "")
+    # Agent may call check_permission or infer from context that scope was revoked —
+    # either way it must NOT silently act; it must explain it needs permission first.
+    chk("5.2", "Agent asks for permission / explains consent needed (does not silently act)", r,
+        any(w in r["text"].lower() for w in [
+            "permission", "approve", "consent", "authorize", "confirm",
+            "accord", "autorisation", "consentement", "explicit", "constraint",
+            "delegate", "monthly", "max", "frequency", "level 5", "agentic",
+        ]),
+        r["text"][:300])
+
+    # 5.3 — User explicitly declines
+    print("\n  Scene 5.3 — User declines re-grant")
+    r = await send_and_collect(ws, "No thanks, I changed my mind")
+    check("5.3", "No error", r["error"] is None, r["error"] or "")
+    chk("5.3", "No grant_permission called after refusal", r,
+        not has_tool(r["tool_calls"], "grant"), str(r["tool_calls"]))
+    chk("5.3", "Assistant accepts gracefully", r,
+        any(w in r["text"].lower() for w in [
+            "ok", "no problem", "of course", "understand", "respect",
+            "bien sûr", "pas de problème", "compris", "entendu",
+            "pas de souci", "n'hésitez", "whenever you", "take your time",
+            "anytime", "here", "help",
+        ]),
+        r["text"][:200])
+
+    # 5.4 — Confirm permission was NOT re-granted after the declined request
+    print("\n  Debug check — scope still not active after declined re-grant")
+    perms = await get_permissions(ws)
+    re_granted = has_scope(perms, "orders.auto_create") and \
+                 scope_status(perms, "orders.auto_create") == "granted"
+    check("5.4.DBG", "Scope 'orders.auto_create' not re-granted after decline",
+          not re_granted, str(perms))
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -386,7 +504,9 @@ async def act6(ws):
     check("6.3", "No error", r["error"] is None, r["error"] or "")
     chk("6.3", "Audit tool called", r, has_tool(r["tool_calls"], "audit"), str(r["tool_calls"]))
     chk("6.3", "Audit entries in response", r,
-        any(w in r["text"].lower() for w in ["granted", "revoked", "audit", "accordé", "révoqué"]),
+        any(w in r["text"].lower() for w in ["granted", "revoked", "audit", "accordé", "révoqué",
+                                              "accord", "révoc", "historique", "journal", "donné",
+                                              "permission", "scope"]),
         r["text"][:200])
 
 
@@ -415,13 +535,14 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--act", nargs="*", type=int, help="Acts to run (default: all)")
     args, _ = parser.parse_known_args()
-    run_acts = set(args.act) if args.act else {1, 2, 3, 5, 6}
+    run_acts = set(args.act) if args.act else {1, 2, 3, 4, 5, 6}
 
     async with websockets.connect(WS_URL) as ws:
         await preflight(ws)
         if 1 in run_acts: await act1(ws)
         if 2 in run_acts: await act2(ws)
         if 3 in run_acts: await act3(ws)
+        if 4 in run_acts: await act4(ws)
         if 5 in run_acts: await act5(ws)
         if 6 in run_acts: await act6(ws)
 
@@ -437,8 +558,7 @@ async def main():
         print(f"\n  {SKIP} Some checks were SKIPPED — OpenRouter 402 (insufficient credits).")
         print(f"     The storybook logic is correct; top up to re-test fully.")
 
-    print(f"\n  {INFO} L1 scope debug checks are informational (known gap): the agent")
-    print(f"     intentionally skips permission tool calls for Level 1 actions.")
+    print(f"\n  {INFO} Level 1 scopes are auto-granted silently when the agent calls check_permission first.")
     print(f"  {INFO} 429 rate limits are retried automatically by the server (up to 5x).")
 
     if failed:

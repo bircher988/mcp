@@ -178,50 +178,104 @@ Refresh debug overlay — you should now see:
 |---|---|---|
 | `checkout` | L3 | granted |
 
-### 🔍 Debug check (full state)
+### 🔍 Debug check (state after Acts 1–3)
 
-Refresh the debug overlay. You should see the full permission ladder exercised:
+Refresh the debug overlay. You should now see:
 
 | Scope | Level | Status |
 |---|---|---|
-| `catalog.browse` | L1 | granted |
-| `product.view` | L1 | granted |
-| `cart.manage` | L1 | granted |
-| `preferences.save` | L2 | granted |
-| `recommendations.get` | L2 | granted |
-| `history.read` | L3 | granted |
+| `profile.save_address` | L2 | granted |
+| `checkout` | L3 | granted |
+
+---
+
+## Act 4 — Level 5: Agentic (auto-reorder)
+
+Level 5 is *Intravenous* in Godin's framework — the agent acts autonomously on your behalf. This requires explicit delegation with hard guardrails (constraints).
+
+### Scene 4.1 — Request auto-reorder
+
+**You type:**
+> Can you set up auto-reorder so I never run out of coffee?
+
+**Expected:**
+1. Tool bubble: `🔐 Checking permission…` (`check_permission` for `orders.auto_create`)
+2. Tool bubble: `🔐 Requesting permission…` (`request_permission`)
+3. The assistant explains Level 5 requires explicit delegation with constraints
+4. It asks what limits you want to place on the auto-reorder
+
+### Scene 4.2 — Approve with constraints
+
+**You type:**
+> Yes, set it up. Max €30 per order, once a month, reorder the Grain 250g.
+
+**Expected:**
+1. Tool bubble: `🔐 Granting permission…` (`grant_permission` with constraints)
+   - `max_price_eur: 30`, `frequency: "monthly"`, `product: "Grain 250g"`, `notify_before_order: true`
+2. Confirmation that restates the constraints back to you:
+   > "I'll automatically reorder Grain 250g once a month, at most €30 per order. I'll notify you before each order."
+
+### → Why constraints matter at Level 5
+
+| Without constraints | With constraints |
+|---|---|
+| Agent could spend any amount | Capped at €30 |
+| Could reorder anything | Locked to Grain 250g |
+| Could order constantly | Maximum monthly |
+| Silent action | Notifies before placing |
+
+Constraints are the guardrails that make autonomous delegation safe and trustworthy.
+
+### 🔍 Debug check — Level 5 scope
+
+Refresh the debug overlay. You should now see:
+
+| Scope | Level | Status |
+|---|---|---|
+| `profile.save_address` | L2 | granted |
 | `checkout` | L3 | granted |
 | `orders.auto_create` | L5 | granted |
+
+Click on `orders.auto_create` — the details should show the constraints stored alongside the grant.
 
 ---
 
 ## Act 5 — Edge cases & denial
 
-### Scene 5.1 — Deny a permission
+### Scene 5.1 — Revoke the auto-reorder permission
 
 **You type:**
 > Actually, revoke the auto-reorder permission
 
 **Expected:**
-1. Tool bubble: `🔐 Revoking permission…`
-2. Confirmation that `orders.auto_create` was revoked
-3. Debug overlay should show it as **revoked**
+1. Tool bubble: `🔐 Revoking permission…` (`revoke_permission` for `orders.auto_create`)
+2. Confirmation that the auto-reorder has been cancelled
+3. Debug overlay shows `orders.auto_create` as **revoked** (or absent)
 
-### Scene 5.2 — Try the denied action
+### 🔍 Debug check
+Refresh the debug overlay — `orders.auto_create` should no longer appear as active.
+
+### Scene 5.2 — Try the revoked action
 
 **You type:**
 > Set up auto-reorder for espresso
 
 **Expected:**
-1. Permission check → NOT granted
-2. The assistant asks for permission again (it was revoked)
-3. If you refuse, the assistant gracefully accepts
+1. Tool bubble: `🔐 Checking permission…` — comes back NOT granted (it was revoked)
+2. Tool bubble: `🔐 Requesting permission…` — agent re-initiates the consent flow
+3. The assistant asks for your approval again — it does **not** act without consent
+
+### Scene 5.3 — Decline the re-grant
 
 **You type:**
 > No thanks, I changed my mind
 
 **Expected:**
 - The assistant says OK, no pressure, doesn't persist
+- No `grant_permission` call is made
+
+### 🔍 Debug check
+Refresh — `orders.auto_create` is still not active. The agent respected the refusal.
 
 ### Scene 5.3 — Multi-user isolation
 

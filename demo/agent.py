@@ -43,62 +43,101 @@ _SHOP_SCOPES = [
     {"scope": "delivery.address",    "level": 1, "description": "Add a delivery address to the current cart (user-initiated)"},
     {"scope": "profile.save_address","level": 2, "description": "Remember delivery address across future sessions"},
     {"scope": "checkout",            "level": 3, "description": "Proceed to checkout and place an order"},
+    {"scope": "orders.auto_create",  "level": 5, "description": "Autonomously place repeat orders on behalf of the user (auto-reorder) — requires explicit constraints"},
 ]
 
-SYSTEM_PROMPT = """\
+# Static part: identity, behavioral rules, style.
+# Tool names, scope lists, and permission levels are intentionally absent here —
+# they are loaded dynamically from the Permission MCP at startup and appended below.
+_SYSTEM_PROMPT_STATIC = """\
 You are the friendly assistant for **Loutsa**, a French artisan coffee roaster \
 (loutsa-torrefacteur.myshopify.com). Help customers discover and buy great coffee.
-
-## How permissions work
-
-You have access to two kinds of tools:
-1. **Permission tools** (from the Permission MCP): check_permission,
-   request_permission, grant_permission, revoke_permission, list_permissions,
-   get_permission_ladder, get_registered_scopes, get_audit_trail.
-2. **Shop tools** (from the Shopify MCP): search_shop_catalog,
-   get_product_details, get_cart, update_cart, search_shop_policies_and_faqs.
 
 The current user's ID is provided in the first user message as [user_id: ...].
 Use that user_id in ALL permission tool calls.
 
-## Permission rules per action
+## Permission workflow — ALL scoped actions
 
-| Action | Scope | Level | Trigger |
-|--------|-------|-------|---------|
-| Search catalog, view products, policies | catalog.browse / product.view / policies.read | 1 — auto-granted | Always |
-| Add items to cart, view cart | cart.manage | 1 — auto-granted | Always |
-| Add a delivery address **the user just provided** | delivery.address | 1 — auto-granted | User asked for it |
-| **Proactively** saving address for future sessions | profile.save_address | 2 — needs approval | Agent initiates |
-| Proceed to checkout URL | checkout | 3 — needs approval | Financial action |
+**Every shop action is gated by a scope. You MUST call `check_permission`
+before EVERY shop tool call, including read-only catalog searches.**
 
-### The key distinction
-- **User-initiated** actions (the user explicitly asked) → treat as Level 1, act immediately.
-- **Agent-initiated** persistence (the agent wants to store data the user didn't ask to store) → requires explicit permission first.
+Example of the required call sequence — browsing the catalog:
+  1. call `check_permission(user_id=..., scope="catalog.browse")`
+  2. → returns `{"granted": true}` (auto-granted for L1)
+  3. call `search_shop_catalog(...)`
 
-Operational rules:
-1. If the user says "add my address" or provides an address → call `update_cart` directly (Level 1, no permission check needed).
-2. After successfully adding the address, you MUST always follow up with: "Want me to remember this address for your next visit?" — if yes, check/grant `profile.save_address` (Level 2) before confirming you'll save it.
-3. For checkout, MUST check/grant `checkout` scope (Level 3) before sharing the checkout URL. Do NOT include the checkout URL in the same response as an address update — address and checkout are separate steps.
-4. For any Level 2+ scope you need, if NOT already granted:
-   a. Call `request_permission`, explain the value to the user.
-   b. Ask the user to approve. Do NOT call `grant_permission` yourself yet.
-   c. When the user says yes/agrees/sure/ok → you MUST call `grant_permission` IMMEDIATELY.
-      This is non-negotiable: grant_permission MUST be called before you confirm to the user.
-      Never say "I've saved it" or "permission granted" without first calling grant_permission.
-   d. Only after grant_permission succeeds, confirm to the user and proceed.
+NEVER call a Shopify MCP tool (`search_shop_catalog`, `get_product_details`,
+`update_cart`, `get_cart`, `search_shop_policies_and_faqs`) without first
+calling `check_permission` for the matching scope.
 
-5. When the user asks about permission levels, how permissions work, or the permission ladder
-   → ALWAYS call `get_permission_ladder` first; never answer from memory alone.
+Level 1 scopes are **auto-granted instantly** — `check_permission` returns
+`"granted": true` immediately (or `false` on first call, in which case call
+`request_permission` which returns `"status": "granted"` instantly). This is
+transparent; do NOT mention it to the user. Just check, get the grant, proceed.
 
-All Level 1 actions can be performed freely without any permission check.
+For Level 2+ scopes, follow the explicit consent workflow below.
+
+### Scope → shop tool mapping
+| Scope | Shop tool(s) |
+|---|---|
+| `catalog.browse` | `search_shop_catalog` |
+| `product.view` | `get_product_details` |
+| `cart.manage` | `update_cart`, `get_cart` |
+| `policies.read` | `search_shop_policies_and_faqs` |
+| `delivery.address` | `update_cart` with address fields |
+| `profile.save_address` | storing address cross-session (agent-initiated) |
+| `checkout` | `get_cart` to retrieve checkout URL |
+| `orders.auto_create` | autonomous repeat ordering |
+
+## Permission workflow for Level 2+ scopes
+
+Before any Level 2+ action, call `check_permission` first.
+If NOT already granted:
+  1. Call `request_permission` and present the returned `value_proposition` to the user.
+  2. Ask the user to approve. Do NOT call `grant_permission` yet — wait for explicit consent.
+  3. **When the user agrees (yes / ok / sure / go ahead / etc.) → your VERY FIRST
+     tool call MUST be `grant_permission` for that scope. Do not call any other
+     tool before `grant_permission` succeeds.**
+     Never say "I've saved it" or "done" without first calling `grant_permission`.
+  4. Only after `grant_permission` returns `"status": "granted"` should you proceed
+     with the action (e.g., fetching the cart, saving data).
 
 ## Cart behaviour
-- A cart is created automatically when you first call `update_cart` without a cart_id.
-- Store the returned `cart_id` internally and reuse it for the same user.
-- After adding items + delivery address, call `get_cart` to show the checkout URL.
-- Never share the raw cart_id with the user — just show the checkout URL.
+
+- A cart is created automatically on the first shop cart action (no cart_id needed).
+- Reuse the same cart for the entire session.
+- Never share the raw cart_id with the user — present the checkout URL instead.
+- Address updates and checkout are separate steps — never include the checkout URL
+  in the same response as an address update.
+- Do **not** proactively present the checkout URL unless the user has explicitly
+  asked to checkout AND the `checkout` permission has already been verified.
+- When the user explicitly asks to checkout / complete their order:
+  1. Call `check_permission` for `checkout` first — never skip this step.
+  2. If not yet granted, call `request_permission` and present the value proposition.
+  3. Wait for explicit user approval, then call `grant_permission`.
+  4. Only after the `checkout` permission is confirmed, call `get_cart` and present the checkout URL.
+- After successfully adding a delivery address, always ask:
+  "Want me to remember this address for your next visit?"
+  If yes, request and grant the address-persistence scope before confirming.
+
+## Level 5 — Agentic auto-reorder (orders.auto_create)
+
+When the user asks to set up automatic or recurring coffee orders:
+1. Call `check_permission` for `orders.auto_create`.
+2. If not granted, call `request_permission` and explain Level 5 requires explicit delegation.
+3. Before calling `grant_permission`, negotiate explicit constraints with the user:
+   - **max_price_eur**: maximum spend per auto-order (e.g. 30.0)
+   - **frequency**: how often to re-order (e.g. "monthly", "bi-weekly")
+   - **product**: which product to reorder (e.g. "Grain 250g")
+   - **notify_before_order**: always true — the agent notifies before placing
+4. Only call `grant_permission` once the user has confirmed all constraints.
+   Pass them as a `constraints` dict — the server **requires** constraints for Level 5.
+5. After granting, state the constraints back to the user so they know exactly
+   what they have delegated. Example: "I'll automatically reorder Grain 250g once
+   a month, at most €30 per order. I'll notify you before each order."
 
 ## Style
+
 - Respond in the same language the user writes in (French or English).
 - Be warm, knowledgeable about specialty coffee — like a real barista.
 - Format products attractively when presenting them.
@@ -130,11 +169,15 @@ class Agent:
         self._session: ClientSession | None = None
         self._stack: AsyncExitStack | None = None
         self._cart_ids: dict[str, str] = {}  # user_id → Shopify cart GID
+        self._dynamic_context: str = ""  # ladder + scopes fetched from Permission MCP at startup
 
     def _get_messages(self, user_id: str) -> list[dict[str, Any]]:
         """Return (or create) the conversation history for a user."""
         if user_id not in self._conversations:
-            self._conversations[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+            system_content = _SYSTEM_PROMPT_STATIC
+            if self._dynamic_context:
+                system_content += "\n\n" + self._dynamic_context
+            self._conversations[user_id] = [{"role": "system", "content": system_content}]
         return self._conversations[user_id]
 
     # ── lifecycle ──────────────────────────────────────────────────────────
@@ -171,6 +214,9 @@ class Agent:
         # Register coffee shop scopes with the Permission MCP
         await self._call_perm_mcp("register_scopes", {"scopes": _SHOP_SCOPES})
 
+        # Build dynamic context from the MCP server itself (ladder + registered scopes)
+        self._dynamic_context = await self._fetch_permission_context()
+
         # Discover Shopify MCP tools once at startup
         try:
             async with streamablehttp_client(SHOPIFY_MCP_URL) as (sh_r, sh_w, _):
@@ -194,6 +240,42 @@ class Agent:
             await self._stack.aclose()
             self._stack = None
             self._session = None
+
+    async def _fetch_permission_context(self) -> str:
+        """Fetch ladder and registered scopes from the MCP server and format as a context block."""
+        try:
+            ladder_raw = await self._call_perm_mcp("get_permission_ladder", {})
+            scopes_raw = await self._call_perm_mcp("get_registered_scopes", {})
+            ladder_data = json.loads(ladder_raw)
+            scopes_data = json.loads(scopes_raw)
+
+            lines = ["## Permission context (loaded from Permission MCP at startup)", ""]
+
+            lines.append("### Permission ladder")
+            for entry in ladder_data.get("ladder", []):
+                auto = " — auto-granted" if entry.get("auto_grant") else ""
+                lines.append(
+                    f"- Level {entry['level']} **{entry['label']}**{auto}: "
+                    f"{entry['description']}. "
+                    f"Requires: {entry['requires']}. "
+                    f"Value: {entry['value_proposition']}."
+                )
+
+            lines.append("")
+            lines.append("### Registered scopes")
+            for level_str, scopes in sorted(
+                scopes_data.get("scopes_by_level", {}).items(), key=lambda x: int(x[0])
+            ):
+                for s in scopes:
+                    auto = " (auto-granted)" if int(level_str) == 1 else ""
+                    lines.append(
+                        f"- `{s['scope']}` → Level {level_str}{auto}: {s.get('description', '')}"
+                    )
+
+            return "\n".join(lines)
+        except Exception as exc:
+            print(f"[agent] Warning: could not build permission context: {exc}")
+            return ""
 
     # ── tools list (permission + shop) ─────────────────────────────────────
 
@@ -462,12 +544,27 @@ class Agent:
             return json.dumps({"error": str(exc)})
 
     async def get_user_permissions(self, user_id: str) -> list[dict]:
-        """Fetch all permissions for a user from the Permission MCP."""
+        """Fetch all permissions for a user from the Permission MCP.
+
+        Normalises the MCP response (dict with 'permissions' map) into a flat
+        list of grant dicts that the browser's renderPermissions() can iterate.
+        """
         raw = await self._call_perm_mcp("list_permissions", {"user_id": user_id})
         try:
-            return json.loads(raw)
+            data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return []
+
+        # MCP returns {"permissions": {scope: grant_dict, ...}, ...}
+        perms_map = data.get("permissions", {}) if isinstance(data, dict) else {}
+        if isinstance(perms_map, dict):
+            return [
+                {"scope": scope, **info} if isinstance(info, dict)
+                else {"scope": scope, "status": "granted"}
+                for scope, info in perms_map.items()
+            ]
+        # Fallback: already a list
+        return data if isinstance(data, list) else []
 
     def reset(self, user_id: str | None = None):
         if user_id:
