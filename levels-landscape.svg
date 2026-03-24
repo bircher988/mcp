@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif">
+
+  <!-- Background -->
+  <rect width="1200" height="620" fill="#FEFEFE"/>
+
+  <!-- Title -->
+  <text x="600" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#222">Permission Marketing — Five Trust Levels</text>
+  <text x="600" y="68" text-anchor="middle" font-size="13" fill="#666">Godin's Permission Ladder · from situational access to autonomous delegation</text>
+
+  <!-- Trust level indicator arrow on left -->
+  <defs>
+    <marker id="arrowUp" markerWidth="10" markerHeight="10" refX="3" refY="5" orient="auto">
+      <path d="M0,10 L6,5 L0,0" fill="none" stroke="#AAAAAA" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <line x1="36" y1="590" x2="36" y2="110" stroke="#CCCCCC" stroke-width="2" marker-end="url(#arrowUp)"/>
+  <text x="30" y="590" text-anchor="middle" font-size="11" fill="#AAAAAA" transform="rotate(-90,30,380)">← lower trust · · · higher trust →</text>
+
+  <!-- ═══════════════════════════════════════════
+       TOP ROW: L4 (left) and L5 (right)
+       ═══════════════════════════════════════════ -->
+
+  <!-- L4 box -->
+  <rect x="80" y="100" width="490" height="200" rx="12" fill="#FFF8E1" stroke="#FFD54F" stroke-width="2.5"/>
+  <rect x="80" y="100" width="490" height="40" rx="12" fill="#FFD54F"/>
+  <rect x="80" y="128" width="490" height="12" fill="#FFD54F"/>
+  <text x="325" y="128" text-anchor="middle" font-size="15" font-weight="bold" fill="#4A3600">L4 · Points Permission</text>
+  <line x1="80" y1="140" x2="570" y2="140" stroke="#FFD54F" stroke-width="1.5"/>
+  <text x="325" y="163" text-anchor="middle" font-size="13" fill="#555">Loyalty programme justifies deeper data use</text>
+  <text x="105" y="193" font-size="12" fill="#888">Requires:</text>
+  <text x="178" y="193" font-size="12" fill="#444">Loyalty programme enrolment</text>
+  <text x="105" y="215" font-size="12" fill="#888">Value:</text>
+  <text x="178" y="215" font-size="12" fill="#444">Exclusive benefits &amp; substantial savings</text>
+  <text x="105" y="237" font-size="12" fill="#888">Auto-grant:</text>
+  <text x="178" y="237" font-size="12" fill="#C62828">No — explicit enrolment required</text>
+  <text x="105" y="259" font-size="12" fill="#888">Scope:</text>
+  <text x="178" y="259" font-size="12" fill="#444">Loyalty data, purchase history, profiling</text>
+  <rect x="80" y="286" width="490" height="14" rx="0" fill="#FFD54F" opacity="0.35"/>
+  <rect x="80" y="286" width="490" height="14" rx="0" fill="none" stroke="none"/>
+
+  <!-- L5 box -->
+  <rect x="630" y="100" width="490" height="200" rx="12" fill="#FBE9E7" stroke="#FF7043" stroke-width="2.5"/>
+  <rect x="630" y="100" width="490" height="40" rx="12" fill="#FF7043"/>
+  <rect x="630" y="128" width="490" height="12" fill="#FF7043"/>
+  <text x="875" y="128" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFF">L5 · Agentic (Intravenous)</text>
+  <line x1="630" y1="140" x2="1120" y2="140" stroke="#FF7043" stroke-width="1.5"/>
+  <text x="875" y="163" text-anchor="middle" font-size="13" fill="#555">Customer delegates decisions to an agent with constraints</text>
+  <text x="655" y="193" font-size="12" fill="#888">Requires:</text>
+  <text x="728" y="193" font-size="12" fill="#444">Explicit delegation + constraints + guardrails</text>
+  <text x="655" y="215" font-size="12" fill="#888">Value:</text>
+  <text x="728" y="215" font-size="12" fill="#444">Effortless management — agent acts on your behalf</text>
+  <text x="655" y="237" font-size="12" fill="#888">Auto-grant:</text>
+  <text x="728" y="237" font-size="12" fill="#C62828">No — mandatory constraints enforced</text>
+  <text x="655" y="259" font-size="12" fill="#888">Scope:</text>
+  <text x="728" y="259" font-size="12" fill="#444">Autonomous actions, orders, agentic tasks</text>
+
+  <!-- ═══════════════════════════════════════════
+       BOTTOM ROW: L1, L2, L3
+       ═══════════════════════════════════════════ -->
+
+  <!-- L1 box -->
+  <rect x="80" y="350" width="313" height="220" rx="12" fill="#F1F8E9" stroke="#81C784" stroke-width="2.5"/>
+  <rect x="80" y="350" width="313" height="40" rx="12" fill="#81C784"/>
+  <rect x="80" y="378" width="313" height="12" fill="#81C784"/>
+  <text x="236" y="378" text-anchor="middle" font-size="15" font-weight="bold" fill="#1B5E20">L1 · Situational</text>
+  <line x1="80" y1="390" x2="393" y2="390" stroke="#81C784" stroke-width="1.5"/>
+  <text x="236" y="413" text-anchor="middle" font-size="12.5" fill="#555">One-time interaction,</text>
+  <text x="236" y="430" text-anchor="middle" font-size="12.5" fill="#555">no ongoing relationship</text>
+  <text x="100" y="460" font-size="12" fill="#888">Requires:</text>
+  <text x="173" y="460" font-size="12" fill="#444">None (public access)</text>
+  <text x="100" y="480" font-size="12" fill="#888">Value:</text>
+  <text x="173" y="480" font-size="12" fill="#444">Frictionless browsing</text>
+  <text x="100" y="500" font-size="12" fill="#888">Auto-grant:</text>
+  <text x="173" y="500" font-size="12" fill="#2E7D32">Yes — fully automatic</text>
+  <text x="100" y="520" font-size="12" fill="#888">Scope:</text>
+  <text x="173" y="520" font-size="12" fill="#444">Catalog, search, FAQs</text>
+
+  <!-- L2 box -->
+  <rect x="443" y="350" width="313" height="220" rx="12" fill="#E1F5FE" stroke="#4FC3F7" stroke-width="2.5"/>
+  <rect x="443" y="350" width="313" height="40" rx="12" fill="#4FC3F7"/>
+  <rect x="443" y="378" width="313" height="12" fill="#4FC3F7"/>
+  <text x="599" y="378" text-anchor="middle" font-size="15" font-weight="bold" fill="#01579B">L2 · Brand Trust</text>
+  <line x1="443" y1="390" x2="756" y2="390" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="599" y="413" text-anchor="middle" font-size="12.5" fill="#555">Customer returns &amp; trusts brand</text>
+  <text x="599" y="430" text-anchor="middle" font-size="12.5" fill="#555">to share preferences</text>
+  <text x="463" y="460" font-size="12" fill="#888">Requires:</text>
+  <text x="536" y="460" font-size="12" fill="#444">Explicit opt-in</text>
+  <text x="463" y="480" font-size="12" fill="#888">Value:</text>
+  <text x="536" y="480" font-size="12" fill="#444">Personalised suggestions</text>
+  <text x="463" y="500" font-size="12" fill="#888">Auto-grant:</text>
+  <text x="536" y="500" font-size="12" fill="#C62828">No — verbal/click opt-in</text>
+  <text x="463" y="520" font-size="12" fill="#888">Scope:</text>
+  <text x="536" y="520" font-size="12" fill="#444">Preferences, recommendations</text>
+
+  <!-- L3 box -->
+  <rect x="806" y="350" width="313" height="220" rx="12" fill="#F3E5F5" stroke="#BA68C8" stroke-width="2.5"/>
+  <rect x="806" y="350" width="313" height="40" rx="12" fill="#BA68C8"/>
+  <rect x="806" y="378" width="313" height="12" fill="#BA68C8"/>
+  <text x="962" y="378" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFF">L3 · Personal Relationship</text>
+  <line x1="806" y1="390" x2="1119" y2="390" stroke="#BA68C8" stroke-width="1.5"/>
+  <text x="962" y="413" text-anchor="middle" font-size="12.5" fill="#555">Personalised relationship</text>
+  <text x="962" y="430" text-anchor="middle" font-size="12.5" fill="#555">across sessions</text>
+  <text x="826" y="460" font-size="12" fill="#888">Requires:</text>
+  <text x="899" y="460" font-size="12" fill="#444">User authentication</text>
+  <text x="826" y="480" font-size="12" fill="#888">Value:</text>
+  <text x="899" y="480" font-size="12" fill="#444">Seamless experience</text>
+  <text x="826" y="500" font-size="12" fill="#888">Auto-grant:</text>
+  <text x="899" y="500" font-size="12" fill="#C62828">No — login required</text>
+  <text x="826" y="520" font-size="12" fill="#888">Scope:</text>
+  <text x="899" y="520" font-size="12" fill="#444">History, cart, profile</text>
+
+  <!-- Footer label -->
+  <text x="600" y="606" text-anchor="middle" font-size="11" fill="#BBBBBB">Permission Marketing MCP · Seth Godin's Permission Ladder</text>
+
+</svg>
